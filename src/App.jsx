@@ -345,7 +345,7 @@ function exportImage(recipe) {
 function toDb(r){return{id:r.id,title:r.title,category:r.category,time_estimate:r.time,servings:r.servings,notes:r.notes,source:r.source,ingredients:r.ingredients||[],steps:r.steps||[]}}
 function fromDb(r){return{...r,time:r.time_estimate}}
 async function dbLoad(){const{data,error}=await supabase.from('recipes').select('*').order('created_at',{ascending:false});if(error)throw error;return(data||[]).map(fromDb)}
-async function dbInsert(r){const{data,error}=await supabase.from('recipes').insert([toDb(r)]).select().single();if(error)throw error;return fromDb(data)}
+async function dbInsert(r){const payload={...toDb(r)};delete payload.id;const{data,error}=await supabase.from('recipes').insert([payload]).select().single();if(error)throw error;return fromDb(data)}
 async function dbUpdate(r){const{data,error}=await supabase.from('recipes').update(toDb(r)).eq('id',r.id).select().single();if(error)throw error;return fromDb(data)}
 async function dbDelete(id){const{error}=await supabase.from('recipes').delete().eq('id',id);if(error)throw error}
 
