@@ -153,10 +153,8 @@ const CSS = `
 @media(prefers-reduced-motion:reduce){.Q-view{animation:none}}
 `
 
-
-/* ── Utilities ───────────────────────────────────────────────── */
+/* ── Utilities ──────────────────────────────────────────────────── */
 const uid = () => Math.random().toString(36).slice(2,9) + Date.now().toString(36)
-
 function parseIng(text) {
   const t = String(text||'').trim()
   const m = t.match(/^([\d.,]+(?:\/[\d.,]+)?)\s*([a-zA-Z%]*)\s{1,}(.+)$/)
@@ -216,7 +214,7 @@ function scaleRecipe(recipe,factor) {
   return {...recipe, ingredients:(recipe.ingredients||[]).map(ing=>{
     if(/^##?\s+/.test(ing)) return ing
     const p=parseIng(ing); if(p.qty===null) return ing
-    return `${fmtQty(p.qty*factor)}${p.unit?' '+p.unit:''}  ${p.name}`
+    return ${fmtQty(p.qty*factor)}${p.unit?' '+p.unit:''}  ${p.name}
   })}
 }
 function findStepsForIng(ingName,steps) {
@@ -227,9 +225,8 @@ function findStepsForIng(ingName,steps) {
   return result
 }
 
-
 /* ── Image compression ──────────────────────────────────────── */
-function compressImage(file,maxW=1600) {
+function compressImage(file,maxW=1024) {
   return new Promise((res,rej)=>{
     const img=new Image(), url=URL.createObjectURL(file)
     img.onload=()=>{
@@ -241,15 +238,15 @@ function compressImage(file,maxW=1600) {
       cv.toBlob(blob=>{
         if(!blob){rej(new Error('Compression failed'));return}
         const reader=new FileReader()
-        reader.onload=()=>res({media_type:'image/jpeg',data:reader.result.split(',')[1],url:cv.toDataURL('image/jpeg',.85)})
+        reader.onload=()=>res({media_type:'image/jpeg',data:reader.result.split(',')[1],url:cv.toDataURL('image/jpeg',.7)})
         reader.onerror=rej; reader.readAsDataURL(blob)
-      },'image/jpeg',.85)
+      },'image/jpeg',.7)
     }
     img.onerror=()=>{URL.revokeObjectURL(url);rej(new Error('Load failed'))}; img.src=url
   })
 }
 
-/* ── PDF Export ─────────────────────────────────────────────── */
+/* ── PDF Export (npm jsPDF) ─────────────────────────────────────── */
 function exportPDF(recipe) {
   const doc=new jsPDF({unit:'mm',format:'a4'})
   const M=18,PW=210,CW=PW-M*2; let y=0
@@ -258,8 +255,8 @@ function exportPDF(recipe) {
   doc.setFont('helvetica','bold');doc.setFontSize(22);doc.setTextColor(31,58,77)
   const tl=doc.splitTextToSize(recipe.title||'Recipe',CW);doc.text(tl,M,y);y+=tl.length*9
   doc.setDrawColor(188,108,44);doc.setLineWidth(1.5);doc.line(M,y,M+28,y);y+=7
-  const meta=[recipe.category&&`Category: ${recipe.category}`,recipe.time&&`Time: ${recipe.time}`,
-    recipe.servings&&`Yield: ${recipe.servings}`].filter(Boolean)
+  const meta=[recipe.category&&${recipe.category},recipe.time&&${recipe.time},
+    recipe.servings&&${recipe.servings}].filter(Boolean)
   if(meta.length){doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(110,100,92);doc.text(meta.join('   ·   '),M,y);y+=9}
   const sections=parseSections(recipe.ingredients||[])
   const totalG=getTotalGrams(recipe.ingredients||[])
@@ -299,8 +296,7 @@ function exportPDF(recipe) {
   doc.save((recipe.title||'recipe').replace(/[^a-z0-9]+/gi,'-').toLowerCase()+'.pdf')
 }
 
-
-/* ── Image Export ───────────────────────────────────────────── */
+/* ── Image Export (Canvas API) ────────────────────────────────────── */
 function exportImage(recipe) {
   const W=1200,M=68,CW=W-M*2,DPR=2,TMP_H=6000
   const cv=document.createElement('canvas');cv.width=W*DPR;cv.height=TMP_H*DPR
@@ -341,7 +337,7 @@ function exportImage(recipe) {
   const a=document.createElement('a');a.href=out.toDataURL('image/png');a.download=(recipe.title||'recipe').replace(/[^a-z0-9]+/gi,'-').toLowerCase()+'.png';document.body.appendChild(a);a.click();document.body.removeChild(a)
 }
 
-/* ── Supabase helpers ────────────────────────────────────────── */
+/* ── Supabase helpers ──────────────────────────────────────────────────── */
 function toDb(r){return{id:r.id,title:r.title,category:r.category,time_estimate:r.time,servings:r.servings,notes:r.notes,source:r.source,ingredients:r.ingredients||[],steps:r.steps||[]}}
 function fromDb(r){return{...r,time:r.time_estimate}}
 async function dbLoad(){const{data,error}=await supabase.from('recipes').select('*').order('created_at',{ascending:false});if(error)throw error;return(data||[]).map(fromDb)}
@@ -349,20 +345,33 @@ async function dbInsert(r){const payload={...toDb(r)};delete payload.id;const{da
 async function dbUpdate(r){const{data,error}=await supabase.from('recipes').update(toDb(r)).eq('id',r.id).select().single();if(error)throw error;return fromDb(data)}
 async function dbDelete(id){const{error}=await supabase.from('recipes').delete().eq('id',id);if(error)throw error}
 
-/* ── Claude via Edge Function ────────────────────────────────── */
+/* ── Claude via Edge Function ──────────────────────────────────────────────── */
 async function invoke(body){
   const{data,error}=await supabase.functions.invoke('extract-recipe',{body})
   if(error)throw new Error(error.message)
   if(data?.error)throw new Error(data.error)
   return data
 }
+
 async function extractWithClaude(images){return invoke({images})}
 async function structureText(text){return invoke({type:'structure',text})}
-async function translateRecipe(recipe,targetLang){return invoke({type:'translate',recipe,targetLang})}
+async function translateRecipe(recipe,targetLang){
+  // Try Edge Function first
+  try{ return await invoke({type:'translate',recipe,targetLang}) }
+  catch(e1){
+    // Edge Function might not support translation yet — try direct approach
+    const{data,error}=await supabase.functions.invoke('extract-recipe',{
+      body:{type:'translate',recipe,targetLang}
+    })
+    if(error) throw new Error('Translation unavailable. Go to Supabase dashboard → Edge Functions → extract-recipe and redeploy the function. ('+error.message+')')
+    if(data?.error) throw new Error(data.error)
+    return data
+  }
+}
+
 const LANGS=['English','Spanish','French','Italian','German','Portuguese','Japanese']
 
-
-/* ── RecipeView ──────────────────────────────────────────────── */
+/* ── RecipeView ─────────────────────────────────────────────────────────────── */
 function RecipeView({r,onEdit,onDelete}){
   const[checked,setChecked]=useState(new Set())
   const[highlightedSteps,setHighlightedSteps]=useState(new Set())
@@ -370,7 +379,8 @@ function RecipeView({r,onEdit,onDelete}){
   const[pctMode,setPctMode]=useState('baker')
   const[pctBase,setPctBase]=useState('')
   const[showScale,setShowScale]=useState(false)
-  const[scaleMode,setScaleMode]=useState('pieces')
+  const[scaleMode,setScaleMode]=useState('factor')
+  const[scaleFactor,setScaleFactor]=useState('2')
   const[scalePieces,setScalePieces]=useState('')
   const[scaleGpp,setScaleGpp]=useState('')
   const[scaleTotal,setScaleTotal]=useState('')
@@ -385,7 +395,7 @@ function RecipeView({r,onEdit,onDelete}){
   const viewR=useMemo(()=>appliedScale?scaleRecipe(displayR,appliedScale.factor):displayR,[displayR,appliedScale])
   const sections=useMemo(()=>parseSections(viewR.ingredients||[]),[viewR])
   const totalGrams=useMemo(()=>getTotalGrams(viewR.ingredients||[]),[viewR])
-  function handleIngToggle(rawIdx){
+  function handleIngToggle(rawIdx,ing){
     setChecked(prev=>{
       const next=new Set(prev)
       if(next.has(rawIdx)) next.delete(rawIdx); else next.add(rawIdx)
@@ -396,12 +406,27 @@ function RecipeView({r,onEdit,onDelete}){
     })
   }
   function applyScale(){
-    const cur=getTotalGrams(r.ingredients||[]);if(!cur)return
-    let targetG=0,label=''
-    if(scaleMode==='pieces'){const pc=parseFloat(scalePieces)||0,gpp=parseFloat(scaleGpp)||0;targetG=pc*gpp;label=`${pc} pcs × ${gpp} g = ${targetG.toFixed(0)} g`}
-    else{targetG=parseFloat(scaleTotal)||0;label=`${targetG.toFixed(0)} g total`}
-    if(targetG<=0)return
-    setAppliedScale({factor:targetG/cur,label});setShowScale(false);setChecked(new Set());setHighlightedSteps(new Set())
+    let factor=0,label=''
+    if(scaleMode==='factor'){
+      factor=parseFloat(scaleFactor)||0
+      if(!factor||factor<=0)return
+      label=`×${factor}`
+    } else {
+      const cur=getTotalGrams(r.ingredients||[])
+      if(!cur){alert('This recipe has no gram-based quantities.\nUse "Multiply by \u00d7" mode instead.');return}
+      let targetG=0
+      if(scaleMode==='pieces'){
+        const pc=parseFloat(scalePieces)||0,gpp=parseFloat(scaleGpp)||0
+        if(!pc||!gpp)return
+        targetG=pc*gpp;label=`${pc} pcs × ${gpp} g = ${targetG.toFixed(0)} g`
+      } else {
+        targetG=parseFloat(scaleTotal)||0
+        if(!targetG)return
+        label=`${targetG.toFixed(0)} g total`
+      }
+      factor=targetG/cur
+    }
+    setAppliedScale({factor,label});setShowScale(false);setChecked(new Set());setHighlightedSteps(new Set())
   }
   async function handleTranslate(){
     setTranslating(true);setTransErr('')
@@ -422,44 +447,52 @@ function RecipeView({r,onEdit,onDelete}){
         {viewR.source&&<div className="Q-meta-item"><dt>Source</dt><dd>{viewR.source}</dd></div>}
       </dl>
       <div className="Q-toolbar">
-        {!appliedScale&&<button className={`btn xs ${showScale?'amber':'ghost'}`} onClick={()=>setShowScale(!showScale)}>⚖ Scale</button>}
-        <button className={`btn xs ${showPct?'amber':'ghost'}`} onClick={()=>setShowPct(!showPct)}>% Baker's</button>
+        {!appliedScale&&<button className=`btn xs ${showScale?'amber':'ghost'}` onClick={()=>setShowScale(!showScale)}>⚖ Scale</button>}
+        <button className=`btn xs ${showPct?'amber':'ghost'}` onClick={()=>setShowPct(!showPct)}>% Baker's</button>
         <select style={{border:'1px solid var(--rule)',borderRadius:5,padding:'4px 7px',fontSize:12,fontFamily:'var(--mono)',background:'#fff',color:'var(--ink)'}} value={targetLang} onChange={e=>setTargetLang(e.target.value)}>
           {LANGS.map(l=><option key={l}>{l}</option>)}
         </select>
         <button className="btn xs green" onClick={handleTranslate} disabled={translating}>{translating?'Translating…':`🌐 ${targetLang}`}</button>
         {transErr&&<span style={{color:'#9b2c2c',fontSize:11}}>{transErr}</span>}
         <div className="right">
-          <button className="btn amber xs" disabled={exporting} onClick={async()=>{setExporting(true);try{exportImage(viewR)}finally{setTimeout(()=>setExporting(false),800)}}}>↓ Image</button>
-          <button className="btn amber xs" onClick={()=>exportPDF(viewR)}>↓ PDF</button>
+          <button className="btn amber xs" disabled={exporting} onClick={async()=>{setExporting(true);try{exportImage(viewR)}finally{setTimeout(()=>setExporting(false),800)}}}>&#8595; Image</button>
+          <button className="btn amber xs" onClick={()=>exportPDF(viewR)}>&#8595; PDF</button>
         </div>
       </div>
       {showScale&&!appliedScale&&(
         <div className="Q-scale-panel">
           <div>
             <h4>Scale recipe</h4>
-            <div style={{fontSize:11,color:'var(--muted)',marginBottom:10}}>Current total: <strong>{getTotalGrams(r.ingredients||[]).toFixed(0)} g</strong></div>
-            <div style={{display:'flex',gap:10,marginBottom:10}}>
-              {[['pieces','Pieces × g/piece'],['total','Total weight']].map(([k,l])=>(
+            <div style={{display:'flex',flexWrap:'wrap',gap:10,marginBottom:12}}>
+              {[['factor','× Multiply (works for all)'],['pieces','Pieces × g/piece'],['total','Total weight']].map(([k,l])=>(
                 <label key={k} style={{display:'flex',alignItems:'center',gap:5,fontSize:12.5,cursor:'pointer'}}>
                   <input type="radio" checked={scaleMode===k} onChange={()=>setScaleMode(k)}/>{l}
                 </label>
               ))}
             </div>
-            {scaleMode==='pieces'?(
+            {scaleMode==='factor'&&(
+              <div className="Q-scale-row">
+                <label>Factor</label>
+                <input type="number" value={scaleFactor} onChange={e=>setScaleFactor(e.target.value)} placeholder="2" min="0.01" step="0.1"/>
+                <span style={{fontSize:11,color:'var(--muted)'}}>&#215; all quantities</span>
+                {scaleFactor&&<span style={{fontFamily:'var(--mono)',fontSize:11,color:'var(--navy)'}}>e.g. 2 = double, 0.5 = half</span>}
+              </div>
+            )}
+            {scaleMode==='pieces'&&(
               <div className="Q-scale-row">
                 <label>Pieces</label>
                 <input type="number" value={scalePieces} onChange={e=>setScalePieces(e.target.value)} placeholder="6" min="1"/>
-                <span style={{fontSize:11,color:'var(--muted)'}}>×</span>
+                <span style={{fontSize:11,color:'var(--muted)'}}>&#215;</span>
                 <input type="number" value={scaleGpp} onChange={e=>setScaleGpp(e.target.value)} placeholder="1000" min="1"/>
                 <label>g / piece</label>
                 {scalePieces&&scaleGpp&&<span style={{fontFamily:'var(--mono)',fontSize:11,color:'var(--navy)'}}>{(parseFloat(scalePieces)*parseFloat(scaleGpp)).toFixed(0)} g</span>}
               </div>
-            ):(
+            )}
+            {scaleMode==='total'&&(
               <div className="Q-scale-row">
                 <label>Total grams</label>
                 <input type="number" value={scaleTotal} onChange={e=>setScaleTotal(e.target.value)} placeholder="2000" min="1"/>
-                <span style={{fontSize:11,color:'var(--muted)'}}>g</span>
+                <span style={{fontSize:11,color:'var(--muted)'}}>g · current: {getTotalGrams(r.ingredients||[]).toFixed(0)} g</span>
               </div>
             )}
           </div>
@@ -501,10 +534,10 @@ function RecipeView({r,onEdit,onDelete}){
                 const mm=String(ing).match(/^([\d.,]+\s*[^\s]+)\s{2,}(.+)$/)||String(ing).match(/^([\d.,]+\s*[a-zA-Z%]+)\s+(.+)$/)
                 const pct=pctData?pctData[ii]:null
                 return(
-                  <li key={ii} className={`Q-ing-row${isChecked?' checked':''}`} onClick={()=>handleIngToggle(rawIdx)}>
-                    <span className="Q-ing-check">{isChecked?'✓':'○'}</span>
+                  <li key={ii} className=`Q-ing-row${isChecked?' checked':''}` onClick={()=>handleIngToggle(rawIdx,ing)}>
+                    <span className="Q-ing-check">{isChecked?'\u2713':'\u25cb'}</span>
                     {mm?<><span className="Q-ing-qty">{mm[1].trim()}</span><span className="Q-ing-name">{mm[2].trim()}</span></>:<span className="Q-ing-name" style={{flex:1}}>{ing}</span>}
-                    {pct&&pct.pct!==null&&<span className={`Q-pct-badge${pct.isBase?' base':''}`}>{pct.pct.toFixed(1)}%</span>}
+                    {pct&&pct.pct!==null&&<span className=`Q-pct-badge${pct.isBase?' base':''}`>{pct.pct.toFixed(1)}%</span>}
                   </li>
                 )
               })}
@@ -529,8 +562,7 @@ function RecipeView({r,onEdit,onDelete}){
   )
 }
 
-
-/* ── RecipeEditor ────────────────────────────────────────────── */
+/* ── RecipeEditor ────────────────────────────────────────────────────────────── */
 function RecipeEditor({initial,onSave,onCancel}){
   const toForm=x=>!x?{}:{...x,ingredientsText:(x.ingredients||[]).join('\n'),stepsText:(x.steps||[]).join('\n')}
   const blank={title:'',category:'',time:'',servings:'',notes:'',source:'Manual',ingredientsText:'',stepsText:''}
@@ -611,7 +643,7 @@ function RecipeEditor({initial,onSave,onCancel}){
                 Paste any recipe text — from a website, a message, a screenshot description, or just type it. <strong>Works on mobile.</strong>
               </p>
               <textarea value={rawText} onChange={e=>setRawText(e.target.value)} rows={7}
-                placeholder={'Paste recipe text here…'}
+                placeholder={'Paste recipe text here…\n\nExamples:\n• Copy from a website\n• Type what you see in a book\n• Paste from WhatsApp / Notes'}
                 style={{width:'100%',border:'1px solid var(--rule)',borderRadius:7,padding:'9px 11px',
                   fontSize:13,fontFamily:'var(--sans)',color:'var(--ink)',resize:'vertical',
                   background:'#fff',display:'block',marginBottom:10}}/>
@@ -663,10 +695,10 @@ function RecipeEditor({initial,onSave,onCancel}){
       <div className="Q-field">
         <label>Ingredients — one per line</label>
         <textarea className="mono" rows={10} value={r.ingredientsText} onChange={set('ingredientsText')}
-          placeholder={'## Primo Impasto\n500 g  bread flour W380\n…'}/>
+          placeholder={'## Primo Impasto\n500 g  bread flour W380\n175 g  water\n## Secondo Impasto\n100 g  butter\n…'}/>
         <div className="hint">Use <strong>## Section Name</strong> for multi-dough recipes. Two spaces between quantity and name. Baker's % and subtotals auto-calculated.</div>
       </div>
-      <div className="Q-field"><label>Method — one step per line</label><textarea rows={8} value={r.stepsText} onChange={set('stepsText')} placeholder={'Refresh the levain 8 h before mixing…'}/></div>
+      <div className="Q-field"><label>Method — one step per line</label><textarea rows={8} value={r.stepsText} onChange={set('stepsText')} placeholder={'Refresh the levain 8 h before mixing…\nFirst dough: combine flour and water…'}/></div>
       <div className="Q-field"><label>Notes</label><textarea rows={3} value={r.notes} onChange={set('notes')} placeholder="Temperatures, adjustments, flour specs…"/></div>
       <div className="Q-ed-foot">
         <button className="btn" onClick={save}>Save recipe</button>
@@ -676,7 +708,7 @@ function RecipeEditor({initial,onSave,onCancel}){
   )
 }
 
-/* ── App ─────────────────────────────────────────────────────── */
+/* ── App ──────────────────────────────────────────────────────────────────── */
 export default function App(){
   const[recipes,setRecipes]=useState([])
   const[loading,setLoading]=useState(true)
