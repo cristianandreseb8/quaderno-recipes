@@ -225,7 +225,7 @@ function stripForApi(recipe){
   return rest
 }
 
-/* ── Voice Input (transcribe only, no AI formatting) ─────────── */
+/* ── Voice Input ─────────────────────────────────────────────── */
 function useVoiceInput(onTranscript){
   const[recording,setRecording]=useState(false)
   const ref=useRef(null);const acc=useRef('')
@@ -262,7 +262,7 @@ const extractWithClaude=imgs=>invoke({images:imgs})
 const structureText=text=>invoke({type:'structure',text})
 const translateRecipe=(recipe,lang)=>invoke({type:'translate',recipe:stripForApi(recipe),targetLang:lang})
 const askAssistant=(msgs,recipe,lang)=>invoke({type:'assistant',messages:msgs.map(m=>({role:m.role,content:m.content})),recipe:stripForApi(recipe),language:lang})
-const askAppAssistant=(msgs,recipes,lang)=>invoke({type:'app_assistant',messages:msgs.map(m=>({role:m.role,content:m.content})),recipes:recipes.map(r=>({id:r.id,title:r.title,category:r.category,time:r.time,servings:r.servings})),language:lang})
+const askAppAssistant=(msgs,recipes)=>invoke({type:'app_assistant',messages:msgs.map(m=>({role:m.role,content:m.content})),recipes:recipes.map(r=>({id:r.id,title:r.title,category:r.category,time:r.time,servings:r.servings}))})
 const aiSuggestNotes=(recipe,currentNotes)=>invoke({type:'ai_suggest_notes',recipe:stripForApi(recipe),currentNotes})
 const LANGS=['English','Spanish','French','Italian','German','Portuguese','Japanese']
 const EXPIRY_OPTS={'24 h':86400000,'1 week':604800000,'1 month':2592000000}
@@ -281,19 +281,15 @@ function exportPDF(recipe,pctOpts=null,exportNotes=false){
   const M=18,PW=210,CW=PW-M*2;let y=0
   function ck(n=12){if(y+n>279){doc.addPage();y=M}}
   doc.setFillColor(31,58,77);doc.rect(0,0,PW,4,'F');y=14
-  // Thumbnail top-right
   if(recipe.thumbnail){try{doc.addImage(recipe.thumbnail,'JPEG',PW-M-28,8,28,28,'','FAST')}catch(_){}}
-  // Title
   const titleW=recipe.thumbnail?CW-34:CW
   doc.setFont('helvetica','bold');doc.setFontSize(22);doc.setTextColor(31,58,77)
   const tl=doc.splitTextToSize(recipe.title||'Recipe',titleW);doc.text(tl,M,y);y+=tl.length*9
   doc.setDrawColor(188,108,44);doc.setLineWidth(1.5);doc.line(M,y,M+28,y);y+=7
-  // Meta
   const meta=[recipe.category&&`Category: ${recipe.category}`,recipe.time&&`Time: ${recipe.time}`,recipe.servings&&`Yield: ${recipe.servings}`].filter(Boolean)
   if(meta.length){doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(110,100,92);doc.text(meta.join('   ·   '),M,y);y+=9}
   if(recipe.thumbnail)y=Math.max(y,42)
   if(pctOpts?.appliedScaleLabel){doc.setFillColor(234,242,238);doc.rect(M,y,CW,6,'F');doc.setFont('helvetica','normal');doc.setFontSize(8.5);doc.setTextColor(45,106,79);doc.text(`⚖ Scaled — ${pctOpts.appliedScaleLabel}`,M+2,y+4.5);y+=8}
-  // Ingredients
   const sections=parseSections(recipe.ingredients||[])
   y+=3;doc.setFont('helvetica','bold');doc.setFontSize(8);doc.setTextColor(31,58,77);doc.text('INGREDIENTS',M,y);y+=6
   sections.forEach(sec=>{
@@ -310,22 +306,18 @@ function exportPDF(recipe,pctOpts=null,exportNotes=false){
   })
   const tg=getTotalGrams(recipe.ingredients||[])
   if(tg>0){doc.setFont('helvetica','bold');doc.setFontSize(9);doc.setTextColor(31,58,77);doc.text(`Total: ${tg.toFixed(0)} g`,PW-M,y,{align:'right'});y+=8}
-  // Steps
   if(recipe.steps?.length){ck(12);y+=3;doc.setFont('helvetica','bold');doc.setFontSize(8);doc.setTextColor(31,58,77);doc.text('METHOD',M,y);y+=6;recipe.steps.forEach((step,i)=>{ck(10);const ls=doc.splitTextToSize(step,CW-14);doc.setFont('helvetica','bold');doc.setFontSize(10);doc.setTextColor(188,108,44);doc.text(String(i+1).padStart(2,'0')+'.',M,y);doc.setFont('helvetica','normal');doc.setTextColor(34,28,24);doc.text(ls,M+14,y);y+=ls.length*5.5+3})}
-  // Baker's note
   if(recipe.notes){ck(18);y+=3;const nl=doc.splitTextToSize(recipe.notes,CW-9);const bh=nl.length*5.5+10;doc.setFillColor(251,239,225);doc.setDrawColor(188,108,44);doc.setLineWidth(.2);doc.rect(M,y,CW,bh,'FD');doc.setFillColor(188,108,44);doc.rect(M,y,2.5,bh,'F');doc.setFont('helvetica','italic');doc.setFontSize(9.5);doc.setTextColor(110,100,92);doc.text(nl,M+5,y+7);y+=bh}
-  // Notes tabs
   if(exportNotes){
     const tabs=parseTabs(recipe.notes_pad).filter(t=>t.content.trim())
     if(tabs.length){ck(16);y+=5;doc.setFont('helvetica','bold');doc.setFontSize(8);doc.setTextColor(31,58,77);doc.text('NOTES',M,y);y+=6;tabs.forEach(tab=>{if(tab.name!=='General'){ck(8);doc.setFont('helvetica','bolditalic');doc.setFontSize(9);doc.setTextColor(91,58,140);doc.text(tab.name,M,y);y+=5};const lines=tab.content.split('\n');lines.forEach(line=>{ck(6);const ls=doc.splitTextToSize(line||' ',CW);doc.setFont('helvetica','normal');doc.setFontSize(9.5);doc.setTextColor(110,100,92);doc.text(ls,M,y);y+=ls.length*5});y+=3})}
   }
-  // Footer
   const total=doc.internal.getNumberOfPages()
   for(let p=1;p<=total;p++){doc.setPage(p);doc.setFont('helvetica','normal');doc.setFontSize(7);doc.setTextColor(180,170,160);doc.text('Quaderno AI',M,292);doc.text(`${new Date().toLocaleDateString()}  ·  ${p}/${total}`,PW-M,292,{align:'right'});doc.setFillColor(31,58,77);doc.rect(0,294,PW,2,'F')}
   doc.save((recipe.title||'recipe').replace(/[^a-z0-9]+/gi,'-').toLowerCase()+'.pdf')
 }
 
-/* ── Image Export (async, includes thumbnail) ────────────────── */
+/* ── Image Export ────────────────────────────────────────────── */
 async function exportImage(recipe,pctOpts=null,exportNotes=false){
   const thumbImg=recipe.thumbnail?await loadImage(recipe.thumbnail):null
   const W=1200,M=68,CW=W-M*2,DPR=2,TH=7000
@@ -336,9 +328,7 @@ async function exportImage(recipe,pctOpts=null,exportNotes=false){
   const dt=(text,x,yy,maxW,lh)=>{const ls=gl(text,maxW);ls.forEach((l,i)=>ctx.fillText(l,x,yy+i*lh));return ls.length*lh}
   function rr(x,yy,w,h,r){ctx.beginPath();ctx.moveTo(x+r,yy);ctx.arcTo(x+w,yy,x+w,yy+h,r);ctx.arcTo(x+w,yy+h,x,yy+h,r);ctx.arcTo(x,yy+h,x,yy,r);ctx.arcTo(x,yy,x+w,yy,r);ctx.closePath()}
   ctx.fillStyle='#1F3A4D';ctx.fillRect(0,0,W,10);y=62
-  // Thumbnail
   if(thumbImg){const SZ=110,TX=W-M-SZ,TY=16;ctx.save();rr(TX,TY,SZ,SZ,8);ctx.clip();ctx.drawImage(thumbImg,TX,TY,SZ,SZ);ctx.restore();ctx.strokeStyle='rgba(230,222,207,.8)';ctx.lineWidth=1;rr(TX,TY,SZ,SZ,8);ctx.stroke()}
-  // Title
   ctx.font='bold 44px Georgia,serif';ctx.fillStyle='#1F3A4D'
   const titleMaxW=thumbImg?CW-130:CW
   y+=dt(recipe.title||'Recipe',M,y,titleMaxW,56)
@@ -367,7 +357,6 @@ async function exportImage(recipe,pctOpts=null,exportNotes=false){
   if(tg>0){ctx.font='bold 13px ui-monospace,monospace';ctx.fillStyle='#1F3A4D';ctx.textAlign='right';ctx.fillText(`Total: ${tg.toFixed(0)} g`,W-M,y);ctx.textAlign='left';y+=26}
   if(recipe.steps?.length){secLbl('METHOD',76);recipe.steps.forEach((step,i)=>{ctx.font='bold 17px -apple-system,sans-serif';ctx.fillStyle='#BC6C2C';ctx.fillText(String(i+1).padStart(2,'0')+'.',M,y);ctx.font='17px -apple-system,sans-serif';ctx.fillStyle='#221C18';y+=Math.max(27,dt(step,M+46,y,CW-46,27))+7})}
   if(recipe.notes){ctx.font='italic 15px -apple-system,sans-serif';const nl=gl(recipe.notes,CW-44);const bh=nl.length*27+36;rr(M,y,CW,bh,8);ctx.fillStyle='#FBEFE1';ctx.fill();ctx.fillStyle='#BC6C2C';ctx.fillRect(M,y,4,bh);ctx.fillStyle='#6E645C';nl.forEach((l,i)=>ctx.fillText(l,M+16,y+24+i*27));y+=bh+20}
-  // Notes tabs
   if(exportNotes){
     const tabs=parseTabs(recipe.notes_pad).filter(t=>t.content.trim())
     if(tabs.length){y+=14;ctx.font='bold 11px ui-monospace,monospace';ctx.fillStyle='#1F3A4D';ctx.fillText('NOTES',M,y);ctx.strokeStyle='#1F3A4D';ctx.lineWidth=.5;ctx.beginPath();ctx.moveTo(M+56,y-3);ctx.lineTo(W-M,y-3);ctx.stroke();y+=22;tabs.forEach(tab=>{if(tab.name!=='General'){ctx.font='bold italic 16px Georgia,serif';ctx.fillStyle='#5B3A8C';ctx.fillText(tab.name,M,y);y+=24};ctx.font='italic 15px -apple-system,sans-serif';ctx.fillStyle='#6E645C';tab.content.split('\n').forEach(line=>{if(line.trim()){y+=dt(line,M+10,y,CW-10,26)}else y+=13})})}
@@ -434,7 +423,6 @@ function NotesPanel({recipe,onSave,onAddNote}){
   const[aiLoading,setAiLoading]=useState(false)
   const timer=useRef(null)
   useEffect(()=>{setTabs(parseTabs(recipe.notes_pad));setActiveIdx(0)},[recipe.id])
-  // Expose onAddNote callback
   useEffect(()=>{if(onAddNote)onAddNote.current=appendNote},[tabs,activeIdx])
   function appendNote(content){
     setTabs(prev=>{const next=prev.map((t,i)=>i===activeIdx?{...t,content:t.content+(t.content?'\n\n':'')+content}:t);save(next);return next})
@@ -464,17 +452,22 @@ function NotesPanel({recipe,onSave,onAddNote}){
   const activeTab=tabs[activeIdx]||tabs[0]
   return(
     <div className="Q-notes-panel">
-      {/* Tab bar */}
       <div className="Q-notes-tabs-row">
         {tabs.map((t,i)=>(
-          <button key={t.id} className={`Q-notes-tab${i===activeIdx?' active':''}`}
-            onClick={()=>setActiveIdx(i)} onDoubleClick={()=>renameTab(i)} title="Double-click to rename">
-            {t.name}
-          </button>
+          <div key={t.id} style={{display:'flex',alignItems:'center'}}>
+            <button className={`Q-notes-tab${i===activeIdx?' active':''}`} onClick={()=>setActiveIdx(i)}>
+              {t.name}
+            </button>
+            {i===activeIdx&&(
+              <button onClick={()=>renameTab(i)} title="Rename tab"
+                style={{background:'none',border:'none',cursor:'pointer',fontSize:11,color:'var(--muted)',padding:'0 3px',lineHeight:1,marginLeft:-2}}>
+                ✏
+              </button>
+            )}
+          </div>
         ))}
         <button className="Q-notes-tab-add" onClick={addTab} title="Add tab">＋</button>
       </div>
-      {/* Toolbar */}
       <div className="Q-notes-toolbar">
         <span style={{fontFamily:'var(--mono)',fontSize:9.5,textTransform:'uppercase',letterSpacing:'.18em',color:'var(--navy)'}}>📝 {activeTab?.name}</span>
         <div style={{display:'flex',gap:6,alignItems:'center'}}>
@@ -489,7 +482,7 @@ function NotesPanel({recipe,onSave,onAddNote}){
       <textarea className="Q-notes-textarea"
         value={activeTab?.content||''}
         onChange={e=>updateContent(e.target.value)}
-        placeholder={`${activeTab?.name} for ${recipe.title}…\n\n🎤 Mic → transcribes exactly what you say + adds timestamp\n✨ AI → suggestions based on this recipe\nDouble-click a tab to rename it`}/>
+        placeholder={`${activeTab?.name} for ${recipe.title}…\n\n🎤 Mic → transcribes exactly what you say + adds timestamp\n✨ AI → suggestions based on this recipe\nClick ✏ next to the active tab to rename it`}/>
     </div>
   )
 }
@@ -504,11 +497,9 @@ function AIAssistant({recipe,onAction,onRequestSaveNote}){
   const endRef=useRef(null)
   const voice=useVoiceInput(t=>setInput(p=>p+(p?' ':'')+t))
   const CONV_KEY=`qd_conv_${recipe.id}`
-  // Load saved conversation
   useEffect(()=>{
     try{const s=JSON.parse(localStorage.getItem(CONV_KEY)||'null');if(s&&s.exp>Date.now()){setMessages(s.msgs||[]);setExpiry(s.expiryLabel||'24 h')}}catch(_){}
   },[recipe.id])
-  // Save conversation whenever messages change
   useEffect(()=>{
     if(!messages.length)return
     try{localStorage.setItem(CONV_KEY,JSON.stringify({msgs:messages.map(m=>({role:m.role,content:m.content,clean:m.clean,hasActions:m.hasActions})),exp:Date.now()+(EXPIRY_OPTS[expiry]||EXPIRY_OPTS['24 h']),expiryLabel:expiry}))}catch(_){}
@@ -520,7 +511,6 @@ function AIAssistant({recipe,onAction,onRequestSaveNote}){
     const msg={role:'user',content:input.trim()}
     const hist=[...messages,msg];setMessages(hist);setInput('');setLoading(true)
     try{
-      // KEY FIX: only send {role,content} to API (no extra props)
       const r=await askAssistant(hist,recipe)
       const text=r?.text||''
       const actionRx=/<ACTION>([\s\S]*?)<\/ACTION>/g;let m;const acts=[]
@@ -589,7 +579,7 @@ function AppAIChat({recipes,onAction,onClose}){
   const endRef=useRef(null)
   const voice=useVoiceInput(t=>setInput(p=>p+(p?' ':'')+t))
   useEffect(()=>endRef.current?.scrollIntoView({behavior:'smooth'}),[messages])
-  const chips=['Add 3 French pastry recipes','Search for brioche','Delete the recipe named…','Export all recipes as JSON','Create a recipe for sourdough bread','List all recipes with category']
+  const chips=['Add 3 French pastry recipes','Search for brioche','Delete the recipe named…','Create a recipe for sourdough bread','List all recipes with category']
   async function send(){
     if(!input.trim()||loading)return
     const msg={role:'user',content:input.trim()}
@@ -662,7 +652,7 @@ function RecipeView({recipe,onEdit,onDelete,onUpdate}){
   const[transErr,setTransErr]=useState('')
   const[exporting,setExporting]=useState(false)
   const[exportNotes,setExportNotes]=useState(false)
-  const addNoteRef=useRef(null) // callback ref for NotesPanel
+  const addNoteRef=useRef(null)
   useEffect(()=>{setChecked(new Set());setHighlightedSteps(new Set());setAppliedScale(null);setTranslated(null);setShowScale(false);setTab('recipe')},[recipe.id])
   const displayR=translated||recipe
   const viewR=useMemo(()=>appliedScale?scaleRecipe(displayR,appliedScale.factor):displayR,[displayR,appliedScale])
@@ -689,8 +679,12 @@ function RecipeView({recipe,onEdit,onDelete,onUpdate}){
       case'add_note':if(addNoteRef.current)addNoteRef.current(action.content);break
     }
   }
-  function handleRequestSaveNote(content){
-    if(addNoteRef.current)addNoteRef.current(content)
+  async function handleRequestSaveNote(content){
+    try{
+      const tabs=parseTabs(recipe.notes_pad)
+      const updated=tabs.map((t,i)=>i===0?{...t,content:t.content+(t.content?'\n\n':'')+content}:t)
+      await onUpdate({...recipe,notes_pad:serializeTabs(updated)})
+    }catch(e){console.error('Save note:',e)}
     setTab('notes')
   }
   async function handleSaveNotes(serialized){await onUpdate({...recipe,notes_pad:serialized})}
@@ -826,7 +820,6 @@ function RecipeEditor({initial,onSave,onCancel}){
   return(
     <div className="Q-ed">
       <h2>{initial?.id?'Edit recipe':'New recipe'}</h2>
-      {/* Extraction */}
       <div style={{border:'1.5px solid var(--rule)',borderRadius:10,marginBottom:18,overflow:'hidden'}}>
         <div style={{display:'flex',borderBottom:'1px solid var(--rule)',background:'#f5efe6'}}>
           {[['text','📋 Paste text'],['photo','📷 From photo']].map(([k,l])=>(
@@ -839,7 +832,6 @@ function RecipeEditor({initial,onSave,onCancel}){
           {err&&<div className="Q-err" style={{marginTop:7}}>{err}</div>}
         </div>
       </div>
-      {/* Thumbnail */}
       <div className="Q-field">
         <label>Thumbnail photo</label>
         <div style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}}>
@@ -849,7 +841,6 @@ function RecipeEditor({initial,onSave,onCancel}){
         </div>
         <div className="hint">Compressed to ~8–15 KB · appears in list and recipe header</div>
       </div>
-      {/* Fields */}
       <div className="Q-field"><label>Title</label><input value={r.title} onChange={set('title')} placeholder="Panettone Classico"/></div>
       <div className="Q-grid2">
         <div className="Q-field"><label>Category</label><input value={r.category} onChange={set('category')} placeholder="Grandi Lievitati"/></div>
@@ -859,13 +850,11 @@ function RecipeEditor({initial,onSave,onCancel}){
         <div className="Q-field"><label>Time</label><input value={r.time} onChange={set('time')} placeholder="~36 h"/></div>
         <div className="Q-field"><label>Yield</label><input value={r.servings} onChange={set('servings')} placeholder="2 × 1 kg"/></div>
       </div>
-      {/* Draggable ingredients */}
       <div className="Q-field">
         <label>Ingredients — drag ⠿ to reorder</label>
         <DraggableIngList lines={ingredientLines} onChange={setIngredientLines}/>
         <div className="hint">Drag ⠿ to reorder · click × to remove · use <strong>+ Section</strong> to add ## headers</div>
       </div>
-      {/* Steps */}
       <div className="Q-field">
         <label>Method — one step per line</label>
         <textarea rows={7} value={(r.steps||[]).join('\n')} onChange={e=>setR(p=>({...p,steps:e.target.value.split('\n')}))} placeholder="Step 1…"/>
@@ -944,7 +933,6 @@ export default function App(){
           </div>
         </main>
       </div>
-      {/* App AI Panel */}
       {showAppAI&&(
         <div className="Q-app-ai-overlay" onClick={e=>{if(e.target===e.currentTarget)setShowAppAI(false)}}>
           <div className="Q-app-ai-panel">
